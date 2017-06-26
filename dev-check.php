@@ -9,6 +9,7 @@ if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
 	exit();
 }
 
+echo date('Y-m-d H:i:s')."\n";
 
 $androidData = array(
 	"battery"=>array(

@@ -1,4 +1,17 @@
 #!/bin/bash
+
+if [ ! -d data ]; then
+	mkdir data
+	mkdir data/tmploc
+fi
+
+
+if [ ! -d dev ]; then
+	mkdir dev
+	mkdir dev/log
+	mkdir dev/state
+fi
+
 if [ -f data/required-apks-hash ]; then
 	mv data/required-apks-hash data/required-apks-hash-prev
 fi
@@ -14,7 +27,7 @@ if [ -f data/required-apks-hash-prev ]; then
 else
 	./update-required-apks.sh
 fi
-	
+
 if pidof -x "usb-check-loop.sh" >/dev/null; then
 	exit
 else
