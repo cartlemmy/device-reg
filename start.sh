@@ -28,8 +28,18 @@ else
 	./update-required-apks.sh
 fi
 
-if pidof -x "usb-check-loop.sh" >/dev/null; then
+if [ ! -f ./inc/config.inc.php ]; then
+	echo "Config file missing (./inc/config.inc.php)"
+	echo "Example config: ./inc/config.inc.example.php"
+	exit
+fi
+
+./proc.php
+
+if ps aux | grep "[u]sb-check-loop.sh"; then
+	echo "Pali Mevice Manager is already running"
 	exit
 else
-	cd /var/www/html; nohup ./usb-check-loop.sh >/dev/null 2>&1 &
+	echo "Starting Pali Device Manager"
+	nohup ./usb-check-loop.sh & echo $! > ./usb-check-loop.pid
 fi

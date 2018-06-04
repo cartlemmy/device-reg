@@ -1,6 +1,6 @@
 <?php
 
-require('config.inc.php');
+require('inc/config.inc.php');
 
 if (isset($_GET["tl"])) {
 	header('Location: '.file_get_contents('data/tmploc/'.$_GET["tl"]));
@@ -24,6 +24,13 @@ foreach ($out as $line) {
 
 $info["mac"] = $mac;
 $info["ip"] = $addr;
+
+$rawInput = file_get_contents("php://input");
+//echo '!!!'.$rawInput."\n\n".substr($rawInput, 0, 10);
+file_put_contents('debug.txt', $rawInput);
+//$rawInput = file_get_contents('debug.txt');
+
+if (substr($rawInput, 0, 10) === '== info ==') require('inc/parse-termux.php');
 
 unset($out);
 

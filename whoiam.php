@@ -1,7 +1,7 @@
 <?php
 
 echo '<pre>';
-require('config.inc.php');
+require('inc/config.inc.php');
 
 $locs = array();
 

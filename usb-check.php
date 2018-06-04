@@ -14,6 +14,7 @@ $matchers = array(
 	'/Product\: (.*)/'=>array('product'=>'$1'),
 	'/Manufacturer:\ (.*)/'=>array('manufacturer'=>'$1'),
 	'/SerialNumber:\ (.*)/'=>array('serial'=>'$1'),
+	'/FIXME:/'=>false,
 	'/Device\s(\d+)\s\(VID\=(\d+)\sand\sPID\=(\d+)\)\sis\sa\s(.*).$/'=>array(
 		'action'=>'device-id',
 		'deviceNum'=>'$1',
@@ -30,6 +31,7 @@ if (($lines = tailFile('/var/log/syslog', '\susb\s|gvfs\-mtp\-volume|gvfsd')) !=
 		$matched = 0;
 		foreach ($matchers as $match=>$set) {
 			if (preg_match($match, $line, $m)) {
+				if ($set === false) continue 2;
 				if ($matched == 0) echo "\t".$line."\n";
 				$matched ++;
 				//echo "\t\t".$match."\n";
@@ -56,7 +58,8 @@ if (($lines = tailFile('/var/log/syslog', '\susb\s|gvfs\-mtp\-volume|gvfsd')) !=
 							}
 							file_put_contents('dev/'.$vars["port"], json_encode($vars, JSON_PRETTY_PRINT));
 							break;
-							
+						
+						case "device-id":	
 						case "disconnect":
 							break;
 							

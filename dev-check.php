@@ -1,37 +1,16 @@
 #!/usr/bin/php
 <?php
 
-require('config.inc.php');
+require('inc/config.inc.php');
+$androidData = require('inc/android-data.php');
+
+require('inc/proc.php');
 
 exec("pgrep dev-check.php", $pids);
 if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
 	echo "dev-check.php already running\n";
 	exit();
 }
-
-echo date('Y-m-d H:i:s')."\n";
-
-$androidData = array(
-	"battery"=>array(
-		"status"=>array(
-			1=>"Unknown",
-			2=>"Charging",
-			3=>"Discharging",
-			4=>"Not charging",
-			5=>"Full"
-		),
-		"health"=>array(
-			1=>"Unknown",   
-			2=>"Good",
-			3=>"Overheat",
-			4=>"Dead",
-			5=>"Over voltage",
-			6=>"Unspecified failure",
-			7=>"Cold"
-		)
-	)
-);
-
 
 if (($devices = getSys(
 	'adb devices -l',
@@ -45,9 +24,13 @@ if (($devices = getSys(
 	$devices = array();
 }
 
+$noneConnected = !count($devices);;
+
+$notDisconnected = array();
 foreach ($devices as &$device) {
 	$serArg = escapeshellarg($device["serial"]);
 	if (!isset($device["regState"])) $device["regState"] = "new";
+	$notDisconnected[] = $device["serial"];
 	$device["stateFlags"] = array("usb-tethered"=>1);
 	
 	$device["tetheredTo"] = CHARGING_STATION.'.'.$device["port"];
@@ -123,7 +106,8 @@ foreach ($devices as &$device) {
 			closedir($dp);
 		}
 	}
-	
+	//echo '!!! adb -s '.$serArg.' shell pm list packages'."\n";
+	//echo "!!! ".print_r($packages, true)."\n";
 	if (($wan = getSys(
 		'adb -s '.$serArg.' shell ping -c 1 paliportal.com',
 		array(array('/1 received/'))
@@ -133,10 +117,16 @@ foreach ($devices as &$device) {
 }
 unset($device);
 
+$newActions = array();
 if ($fp = @fopen('data/actions', 'r')) {
 	while (!feof($fp)) {
-		if ($deviceFromAction = json_decode(fgets($fp), true)) {
+		$line = fgets($fp);
+		if ($deviceFromAction = json_decode($line, true)) {
 			$action = $deviceFromAction["action"];
+			if ($noneConnected && !'disconnect') {
+				$newActions[] = $line;
+				continue;
+			}
 			unset($deviceFromAction["action"]);
 			
 			$devI = -1;
@@ -171,6 +161,10 @@ if ($fp = @fopen('data/actions', 'r')) {
 					break;
 				
 				case "disconnect":
+					if (in_array($devices[$devI]["serial"], $notDisconnected)) {
+						echo "\tFalse disconnect\n";
+						continue 2;
+					}
 					$devices[$devI]["stateFlags"]["usb-tethered"] = 0;
 					$devices[$devI]["tetheredTo"] = "NULL";
 					if (isset($devices[$devI]["battery"]["USB powered"])) $devices[$devI]["battery"]["USB powered"] = false;
@@ -180,7 +174,7 @@ if ($fp = @fopen('data/actions', 'r')) {
 		}
 	}
 	fclose($fp);
-	file_put_contents('data/actions', '');
+	file_put_contents('data/actions', implode("\n", $newActions));
 }
 
 foreach ($devices as $device) {
@@ -245,17 +239,6 @@ function normVar($v) {
 	return json_encode($v);
 }
 
-function parseDeviceData($data) {
-	$rv = array();
-	if (isset($data["serial"])) $rv["ser"] = $data["serial"];
-	if (isset($data["tetheredTo"])) $rv["tetheredTo"] = $data["tetheredTo"];
-	if (isset($data["battery"]["level"])) $rv["batt"] = (int)$data["battery"]["level"];
-	if (isset($data["mac"])) $rv["mac"] = $data["mac"];
-	if (isset($data["stateFlags"])) $rv["stateFlags"] = $data["stateFlags"];
-	if (isset($data["lanIP"])) $rv["lanIP"] = $data["lanIP"];
-
-	return $rv;
-}
 
 function installAPKInDir($serial, $dir) {
 	if ($dp = opendir($dir)) {
@@ -359,7 +342,9 @@ function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.inte
 			
 			$notFound = strpos($data["message"]["text"], "not found") !== false;
 			if ($notFound) {
+				
 				devlog($serial, $serial." not found, waiting.");
+				continue;
 			}
 			
 			if ($unauthorized) {
@@ -385,6 +370,7 @@ function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.inte
 function devlog($serial, $txt) {
 	echo $txt."\n";
 	file_put_contents('dev/log/'.preg_replace('/[^\w\d+]/','', $serial), $txt."\n", FILE_APPEND);
+	file_put_contents('log.txt', $txt."\n", FILE_APPEND);
 }
 
 function getSys($c, $matchers = false) {
@@ -418,60 +404,4 @@ function getSys($c, $matchers = false) {
 		return $rv;
 	}
 	return $out;
-}
-
-function dbg($o) {
-	echo json_encode($o, JSON_PRETTY_PRINT)."\n";
-}
-
-function paramDecode($p) {
-	$p = trim($p);
-	if ($p === "false") return false;
-	if (($dec = json_decode($p, true)) !== false) return $dec;
-	return $p;
-}
-
-function ppReq($method, $endpoint, $params = false, $data = false) {
-
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-	curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-		'Accept: application/json',
-		'Accept-Charset: utf-8',
-		'X-Yp-Key: 4.a1vZL8Gp5J6A9VML7A99oz7fzTcBcLdj'
-	));
-	
-	curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);           
-	if (is_array($data)) $data = json_encode($data);                                                          
-	if (trim($data)) curl_setopt($ch, CURLOPT_POSTFIELDS, $data); 
-	
-	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-	$url = "https://paliportal.com/v1/json/".$endpoint."/".($params === false ? '' : str_replace(' ','%20',$params));
-
-	echo $method." ".$url."\n";
-	if (trim($data)) echo "\t".$data."\n";
-	curl_setopt($ch, CURLOPT_URL, $url);
-	curl_setopt($ch, CURLOPT_REFERER, 'YP Device Reg');
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-	//curl_setopt($ch, CURLOPT_VERBOSE, 1);
-	//curl_setopt($ch, CURLOPT_HEADER, 1);
-	
-	$raw = curl_exec($ch);
-	
-	//$headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-	//$headers = API::parseHeaders(substr($raw, 0, $headerSize));
-	//$raw = substr($raw, $headerSize);
-
-	curl_close($ch);
-	
-	$json = false;
-
-	if ($json = json_decode($raw, true)) {
-		return $json;
-	}
-	//if ($json) var_dump($json);
-	
-	echo $raw;
-
-	return false;
 }

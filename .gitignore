@@ -1,0 +1,9 @@
+debug.txt
+dl/*
+log.txt
+nohup.out
+dev
+required-apks
+data
+*.pid
+inc/config.inc.php
