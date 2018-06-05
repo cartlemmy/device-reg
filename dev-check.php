@@ -314,7 +314,7 @@ function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.inte
 				$li = is_file('data/tmploci') ? (int)file_get_contents('data/tmploci') : 0;
 				file_put_contents('data/tmploc/'.dechex($li), $path);			
 				
-				$res = devOpenURL($serial, 'http://'.$locs[0].'/?tl='.dechex($li), true);
+				$res = devOpenURL($serial, 'http://'.$locs[0].'/device-reg/?tl='.dechex($li), true);
 				$li ++;
 				if ($li > 255) $li = 0;
 				file_put_contents('data/tmploci', $li);

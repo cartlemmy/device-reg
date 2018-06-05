@@ -1,7 +1,17 @@
 <?php
 
+ini_set('display_errors',1);
+ini_set('log_errors',0);
+
 require('inc/config.inc.php');
 
+if (isset($_GET["termux"])) {
+	?><b>Copy-paste below to termux:</b>
+	<code>
+	rm -f termux-init.sh; wget <?=WWW;?>dl/termux-init.sh; chmod +x termux-init.sh; ./termux-init.sh
+	</code><?php
+	return;
+}
 if (isset($_GET["tl"])) {
 	header('Location: '.file_get_contents('data/tmploc/'.$_GET["tl"]));
 	exit();
@@ -37,7 +47,8 @@ unset($out);
 $cmd = 'grep -ir '.escapeshellarg($mac).' dev/state 2>&1';
 
 exec($cmd, $out);
-$file = array_shift(explode(':  ', $out[0]));
+$file = explode(':  ', $out[0]);
+$file = array_shift($file);
 if (is_file($file) && ($state = json_decode(file_get_contents($file),true))) {
 	if (isset($state["serial"])) $info["serial"] = $state["serial"];
 }

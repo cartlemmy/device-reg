@@ -1,5 +1,7 @@
 <?php
 
+system('mkdir -p dl');
+
 $dynSh = array('termux-init', 'send-upd');
 foreach ($dynSh as $n) {
 	if (
