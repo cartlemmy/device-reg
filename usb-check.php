@@ -1,6 +1,8 @@
 #!/usr/bin/php
 <?php
 
+define('SYSLOG_LOCATION', '/var/log/syslog');
+
 exec("pgrep usb-check.php", $pids);
 if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
 	echo "usb-check.php already running";
@@ -8,12 +10,12 @@ if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
 }
 
 $matchers = array(
-	'/usb\s(\d([\.\-]\d+)+)/'=>array('port'=>'$1'),
-	'/New USB device found/'=>array('action'=>'new-device'),
+	'/usb\s(\d([\.\-]\d+)+)/'=>array('dbg-label'=>'USB port found','port'=>'$1'),
+	'/New USB device found/'=>array('dbg-label'=>'New device found','action'=>'new-device'),
 	'/USB disconnect/'=>array('action'=>'disconnect'),
-	'/Product\: (.*)/'=>array('product'=>'$1'),
-	'/Manufacturer:\ (.*)/'=>array('manufacturer'=>'$1'),
-	'/SerialNumber:\ (.*)/'=>array('serial'=>'$1'),
+	'/Product\: (.*)/'=>array('dbg-label'=>'Device Product found', 'product'=>'$1'),
+	'/Manufacturer:\ (.*)/'=>array('dbg-label'=>'Device Manufacturer found','manufacturer'=>'$1'),
+	'/SerialNumber:\ (.*)/'=>array('dbg-label'=>'Device Serial Number found','serial'=>'$1'),
 	'/FIXME:/'=>false,
 	'/Device\s(\d+)\s\(VID\=(\d+)\sand\sPID\=(\d+)\)\sis\sa\s(.*).$/'=>array(
 		'action'=>'device-id',
@@ -24,8 +26,9 @@ $matchers = array(
 	)
 );
 
+dbg('scanning '.SYSLOG_LOCATION);
 $callDevCheck = false;
-if (($lines = tailFile('/var/log/syslog', '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== false) {
+if (($lines = tailFile(SYSLOG_LOCATION, '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== false) {
 	$vars = array();
 	foreach ($lines as $line) {
 		$matched = 0;
@@ -37,7 +40,8 @@ if (($lines = tailFile('/var/log/syslog', '\susb\s|gvfs\-mtp\-volume|gvfsd')) !=
 				//echo "\t\t".$match."\n";
 				//echo "\t\t".str_replace("\n","\n\t\t", json_encode($m, JSON_PRETTY_PRINT))."\n";
 				foreach ($set as $n=>$v) {
-					if (substr($v,0,1) == '$') {
+					if ($n === 'dbg-label') {
+					} elseif (substr($v,0,1) == '$') {
 						$vars[$n] = $m[(int)substr($v,1)];
 					} else {
 						$vars[$n] = $v;
@@ -105,4 +109,8 @@ function tailFile($file, $match = false) {
 		fclose($fp);
 	}
 	return count($rv) ? $rv : false;
+}
+
+function dbg($txt) {
+	echo $txt."\n";
 }
