@@ -9,13 +9,15 @@ if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
 	exit();
 }
 
+require_once(__DIR__.'/inc/common.php');
 $matchers = array(
-	'/usb\s(\d([\.\-]\d+)+)/'=>array('dbg-label'=>'USB port found','port'=>'$1'),
-	'/New USB device found/'=>array('dbg-label'=>'New device found','action'=>'new-device'),
+	'/usb\s(\d([\.\-]\d+)+)/'=>array('port'=>'$1'),
+	'/New USB device found/'=>array('action'=>'new-device'),
 	'/USB disconnect/'=>array('action'=>'disconnect'),
-	'/Product\: (.*)/'=>array('dbg-label'=>'Device Product found', 'product'=>'$1'),
-	'/Manufacturer:\ (.*)/'=>array('dbg-label'=>'Device Manufacturer found','manufacturer'=>'$1'),
-	'/SerialNumber:\ (.*)/'=>array('dbg-label'=>'Device Serial Number found','serial'=>'$1'),
+	'/Product\: (.*)/'=>array('product'=>'$1'),
+	'/Manufacturer:\ (.*)/'=>array('manufacturer'=>'$1'),
+	'/SerialNumber:\ (.*)/'=>array('action'=>'scan','serial'=>'$1'),
+	'/New USB device string/'=>true,
 	'/FIXME:/'=>false,
 	'/Device\s(\d+)\s\(VID\=(\d+)\sand\sPID\=(\d+)\)\sis\sa\s(.*).$/'=>array(
 		'action'=>'device-id',
@@ -26,7 +28,14 @@ $matchers = array(
 	)
 );
 
-dbg('scanning '.SYSLOG_LOCATION);
+if (getGlobal('adb-restart')) {
+	dbg('ADB requires restart');
+	adbCommand('adb kill-server');
+	clearGlobal('adb-restart');
+	exit();
+}
+
+verbose('scanning '.SYSLOG_LOCATION);
 $callDevCheck = false;
 if (($lines = tailFile(SYSLOG_LOCATION, '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== false) {
 	$vars = array();
@@ -34,13 +43,18 @@ if (($lines = tailFile(SYSLOG_LOCATION, '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== 
 		$matched = 0;
 		foreach ($matchers as $match=>$set) {
 			if (preg_match($match, $line, $m)) {
-				if ($set === false) continue 2;
-				if ($matched == 0) echo "\t".$line."\n";
+				if ($set === false) break;
+				if ($set === true) {
+					$callDevCheck = true;
+					break;
+				}
+				if ($matched == 0) verbose('\tmatched: '.$line);
 				$matched ++;
-				//echo "\t\t".$match."\n";
-				//echo "\t\t".str_replace("\n","\n\t\t", json_encode($m, JSON_PRETTY_PRINT))."\n";
+				verbose($match);
+				verbose(str_replace("\n","\n\t\t", json_encode($m, JSON_PRETTY_PRINT)));
 				foreach ($set as $n=>$v) {
 					if ($n === 'dbg-label') {
+						dbg($v);
 					} elseif (substr($v,0,1) == '$') {
 						$vars[$n] = $m[(int)substr($v,1)];
 					} else {
@@ -48,19 +62,23 @@ if (($lines = tailFile(SYSLOG_LOCATION, '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== 
 					}
 				}
 				if (isset($vars["action"])) {
-					if (isset($vars["port"]) && !isset($vars["serial"])) {
+					// Probably shouldn't check the serial # this way
+					/*if (isset($vars["port"]) && !isset($vars["serial"])) {
 						$infoFile = 'dev/'.$vars["port"];
 						if (is_file($infoFile) && ($info = json_decode(file_get_contents($infoFile), true)) !== false) {
-							$vars["serial"] = $info["serial"];
+							if (isset($info["serial"])) { 
+								$vars["serial"] = $info["serial"];
+							}
 						}
-					}
+					}*/
+					
 					switch ($vars["action"]) {
 						case "new-device":
+							file_put_contents('new-device', 0);
 							if (!isset($vars["serial"])) {
-								echo "Waiting for device SerialNumber\n";
 								continue 2;
 							}
-							file_put_contents('dev/'.$vars["port"], json_encode($vars, JSON_PRETTY_PRINT));
+							//file_put_contents('dev/'.$vars["port"], json_encode($vars, JSON_PRETTY_PRINT));
 							break;
 						
 						case "device-id":	
@@ -72,45 +90,30 @@ if (($lines = tailFile(SYSLOG_LOCATION, '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== 
 					}
 					$callDevCheck = true;
 					
-					echo "Queueing action ".json_encode($vars)."\n";
+					verbose("Queueing action ".json_encode($vars));
 					file_put_contents('data/actions', json_encode($vars)."\n", FILE_APPEND);
 					$vars = array();
 				}
 			}
 		}
 		if ($matched == 0) {
-			echo "\tUnmatched: ".$line."\n";
+			verbose("\tUnmatched: ".$line);
 		}
 	}
 }
 
-if ($callDevCheck || filesize('data/actions')) { 
-	system('./dev-check.php');
+if (is_file('first-run')) {
+	$callDevCheck = true;
+	unlink('first-run');
 }
 
-function tailFile($file, $match = false) {
-	$rv = array();
-	$posFile = 'data/pos-'.preg_replace('/[^\w\d\-]/','_',$file);
-	$prevPos = is_file($posFile) ? (int)file_get_contents($posFile) : 0;
-	
-	if ($fp = fopen($file, "r")) {
-		fseek($fp, 0, SEEK_END);
-		if ($prevPos > ftell($fp)) $prevPos = 0;
-		fseek($fp, $prevPos);
-		
-		while (!feof($fp)) {
-			if (($line = trim(fgets($fp))) !== "") {
-				if ($match === false || preg_match('/'.$match.'/', $line)) {
-					$rv[] = $line;
-				}
-			}
-		}
-		file_put_contents($posFile, ftell($fp));
-		fclose($fp);
-	}
-	return count($rv) ? $rv : false;
+if (is_file('new-device')) {
+	$callDevCheck = true;
 }
 
-function dbg($txt) {
-	echo $txt."\n";
+if ($callDevCheck || filesize('data/actions') || !is_file('data/dev-check-ran') || time() > filemtime('data/dev-check-ran') + 30) { 
+	dbg('running dev-check');
+	exec('./dev-check.php 2>&1', $out, $rv);
+	if ($rv !== 0) dbg(implode("\n", $out));
+	touch('data/dev-check-ran');
 }

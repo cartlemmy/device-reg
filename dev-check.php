@@ -4,11 +4,12 @@
 require('inc/config.inc.php');
 $androidData = require('inc/android-data.php');
 
+require_once('inc/common.php');
 require('inc/proc.php');
 
 exec("pgrep dev-check.php", $pids);
 if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
-	echo "dev-check.php already running\n";
+	verbose("dev-check.php already running");
 	exit();
 }
 
@@ -24,12 +25,59 @@ if (($devices = getSys(
 	$devices = array();
 }
 
-$noneConnected = !count($devices);;
+dbg($devices);
+
+$lastConnCount = is_file('data/last-conn-count') ? (int)file_get_contents('data/last-conn-count') : 0;
+$connCount = count($devices);
+file_put_contents('data/last-conn-count', $connCount);
+$noneConnected = !$connCount;
+
+if (is_file('new-device')) {
+	if ($connCount > $lastConnCount) {
+		unlink('new-device');
+	} else {
+		$cnt = (int)file_get_contents('new-device');
+		$cnt++;
+		if ($cnt > 3) {
+			unlink('new-device');
+		}
+		dbg('ADB has not yet recognized the new device');
+	}
+}
 
 $notDisconnected = array();
-foreach ($devices as &$device) {
+foreach ($devices as $devNum=>$device) {
 	$serArg = escapeshellarg($device["serial"]);
-	if (!isset($device["regState"])) $device["regState"] = "new";
+	
+	$stateFile = 'dev/state/'.$device["serial"];
+
+	$state = is_file($stateFile) ? json_decode(file_get_contents($stateFile), true) : array();
+	
+	if ($state) {
+		foreach ($state as $n=>$v) {
+			if (!isset($device[$n])) $device[$n] = $v;
+		}
+	}
+	
+	if (!isset($device["regState"])) {
+		$device["regState"] = "new";		
+		dbg('New device found '.json_encode($device));
+		file_put_contents('data/actions', json_encode(array(
+			"action"=>"new-device",
+			"serial"=>$device["serial"],
+			"port"=>$device["port"]
+		))."\n", FILE_APPEND);
+	}
+	
+	if (!isset($device["tetheredTo"]) || !$device["tetheredTo"] || $device["tetheredTo"] == 'NULL') {
+		dbg('Connected: '.$device["serial"]);
+		file_put_contents('data/actions', json_encode(array(
+			"action"=>"connected",
+			"serial"=>$device["serial"],
+			"port"=>$device["port"]
+		))."\n", FILE_APPEND);
+	}
+	
 	$notDisconnected[] = $device["serial"];
 	$device["stateFlags"] = array("usb-tethered"=>1);
 	
@@ -88,6 +136,14 @@ foreach ($devices as &$device) {
 	)) !== false) {
 		$device["packages"] = array();	
 		if (in_array("com.kingroot.kinguser", $packages)) $device["rooted"] = 1;
+		if (in_array("com.termux", $packages) && in_array("com.termux.api", $packages)) {
+			if (!isset($device["termux-init"]) || time() > $device["termux-init"] + 2) {
+				dbg('Initializing termux for '.$device["serial"]);
+				
+				sendInputFromFile($device["serial"], 'inc/termux-init.sh.php');
+				$device["termux-init"] = time();
+			}
+		}
 		if ($dp = opendir('required-apks')) {
 			while (($file = readdir($dp)) !== false) {
 				$path = 'required-apks/'.$file;
@@ -108,12 +164,12 @@ foreach ($devices as &$device) {
 	}
 	//echo '!!! adb -s '.$serArg.' shell pm list packages'."\n";
 	//echo "!!! ".print_r($packages, true)."\n";
-	if (($wan = getSys(
-		'adb -s '.$serArg.' shell ping -c 1 paliportal.com',
-		array(array('/1 received/'))
-	)) !== false) {
-		$device["stateFlags"]["wan-connected"] = count($wan) == 0 || trim($wan[0]) == "" ? 0 : 1;
-	}
+	$locs = explode("\n", trim(file_get_contents('data/locs')));
+	
+	$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') ? 1 : 0;
+	$device["stateFlags"]["controller-connected"] = canSee( $device["serial"], $locs[0]) ? 1 : 0;	
+	
+	$devices[$devNum] = $device;
 }
 unset($device);
 
@@ -145,24 +201,27 @@ if ($fp = @fopen('data/actions', 'r')) {
 				}
 			}
 			if (!isset($devices[$devI]["port"])) {
-				echo "\tTried Action '".$action."', no port".json_encode($devices[$devI])."\n";
+				dbg("\tTried Action '".$action."', no port".json_encode($devices[$devI]));
 				continue;
 			}
 			
-			echo $action.": ".$devices[$devI]["port"]." (".$devices[$devI]["serial"].")\n";
+			verbose($action.": ".$devices[$devI]["port"]." (".$devices[$devI]["serial"].")");
 			switch ($action) {
 				case "open-url":
 					devOpenURL($deviceFromAction["serial"], $deviceFromAction["path"]);
 					break;
 					
 				case "new-device":
+					break;
+					
+				case "connected":
 					$devices[$devI]["stateFlags"]["usb-tethered"] = 1;
 					$devices[$devI]["tetheredTo"] = CHARGING_STATION.'.'.$devices[$devI]["port"];
 					break;
 				
 				case "disconnect":
 					if (in_array($devices[$devI]["serial"], $notDisconnected)) {
-						echo "\tFalse disconnect\n";
+						dbg("\tFalse disconnect");
 						continue 2;
 					}
 					$devices[$devI]["stateFlags"]["usb-tethered"] = 0;
@@ -203,7 +262,7 @@ foreach ($devices as $device) {
 	
 	if (count($updated)) {
 		$updated["serial"] = $device["serial"];
-		echo "UPDATED ".$device["serial"].": \n".implode("\n", $updatedDesc)."\n";
+		verbose("UPDATED ".$device["serial"].": \n".implode("\n", $updatedDesc));
 		$updated = parseDeviceData($updated);
 		if ($res = ppReq('PUT', 'device', false, $updated)) {
 			if (isset($res["res"]["commands"]) && $device["tetheredTo"] != "NULL") {
@@ -219,189 +278,4 @@ foreach ($devices as $device) {
 	}
 }
 
-//dbg($devices); 
-
-function deviceCommand() {
-	$args = func_get_args();
-	switch (array_shift($args)) {
-		case "view":
-			call_user_func_array('devOpenURL', $args);
-			break;
-	}
-}
-
-function stateDiff($v1, $v2) {
-	return normVar($v1) != normVar($v2);
-}
-
-function normVar($v) {
-	if (in_array(gettype($v), array("integer", "double", "string"))) return "".$v;
-	return json_encode($v);
-}
-
-
-function installAPKInDir($serial, $dir) {
-	if ($dp = opendir($dir)) {
-		while (($file = readdir($dp)) !== false) {
-			$f = explode('.', $file);
-			if (array_pop($f) == 'apk') {
-				exec('adb -s '.escapeshellarg($serial).' install '.escapeshellarg($dir.'/'.$file));
-				/*if (is_file($dir.'/README.txt')) {
-					devOpenURL(escapeshellarg($serial), $dir.'/README.txt');
-				}*/
-				break;
-			}
-		}
-		closedir($dp);
-	}
-}
-
-function devScreenshot($serial, $outfile) {
-	return adbCommand('screencap -p | perl -pe \'s/\x0D\x0A/\x0A/g\' > '.escapeshellarg($outfile));
-}
-
-function devAddShortcut($serial) {
-	//TODO: doesn't work
-	return adbCommand(
-		$serial,
-		'am broadcast '.
-		'-a com.android.launcher.action.INSTALL_SHORTCUT '.
-		'--es Intent.EXTRA_SHORTCUT_NAME "<shortcut-name>" '.
-		'--esn Intent.EXTRA_SHORTCUT_ICON_RESOURCE '.
-		'<package-name>/.activity'
-	);
-}
-
-function devSetProp($serial, $n, $v) {
-	return adbCommand(
-		$serial,
-		'setprop '.escapeshellarg($n).' '.escapeshellarg($v)
-	);
-}
-		
-	
-function adbCommand($serial, $cmd) {
-	$cmd = 'adb -s '.escapeshellarg($serial).' shell '.$cmd;
-	
-	devlog($serial, "ADB COMMAND: ".$cmd);
-
-	exec($cmd." 2>&1", $out, $res);
-	
-	devlog($serial, "\t".implode("\n\t",$out));
-	
-	return $out;
-}
-
-function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.intent.action.VIEW') {
-	$url = $path;
-	/*$pwd = $_SERVER["PWD"];
-	if ($pwd == substr($path, 0, strlen($pwd))) {
-		$path = substr($path, strlen($pwd));
-	}
-	$url = DEV_CHECK_SERVER_ADDR.'/'.$path;*/
-	
-	$cmd = 'adb -s '.escapeshellarg($serial).' shell am start '.$intent.' -d '.($noRetry ? $url : escapeshellarg(urlencode($url)));
-	devlog($serial, "ADB COMMAND: ".$cmd);
-
-	exec($cmd." 2>&1", $out, $res);
-	
-	devlog($serial, "\t".implode("\n\t",$out));
-	
-	foreach ($out as $line) {
-		if (stripos($line, 'unable to resolve intent') !== false) {
-			if (!$noRetry && is_file('data/locs')) {
-				$locs = explode("\n", trim(file_get_contents('data/locs')));
-				$li = is_file('data/tmploci') ? (int)file_get_contents('data/tmploci') : 0;
-				file_put_contents('data/tmploc/'.dechex($li), $path);			
-				
-				$res = devOpenURL($serial, 'http://'.$locs[0].'/device-reg/?tl='.dechex($li), true);
-				$li ++;
-				if ($li > 255) $li = 0;
-				file_put_contents('data/tmploci', $li);
-			}
-			return;
-		}
-		if (stripos($line, 'device descriptor read/64, error') !== false) {
-			ppReq('PUT', 'device', false, array(
-				'station-request'=>array(
-					'id'=>CHARGING_STATION,
-					'action'=>'reboot now',
-					'reason'=>'USB hub issues'
-				)
-			));
-		}
-		if (substr($line, 0, 6) == "error:") {
-			$unauthorized = strpos($line, "device unauthorized") !== false;
-			$data = array(
-				"serialNum"=>$serial,
-				"message"=>array(
-					"type"=>"error",
-					"text"=>substr($line, 6),
-				)
-			);
-			
-			$notFound = strpos($data["message"]["text"], "not found") !== false;
-			if ($notFound) {
-				
-				devlog($serial, $serial." not found, waiting.");
-				continue;
-			}
-			
-			if ($unauthorized) {
-				$data["stateFlags"]["requires-auth"] = 1;
-			}
-			
-			//ppReq('PUT', 'device', false, $data);
-			
-			if ($unauthorized || $notFound) {
-				$vars = array(
-					"action"=>"open-url",
-					"serial"=>$serial,
-					"path"=>$path				
-				);
-				devlog($serial, "Queueing open URL retry ".json_encode($vars));
-				file_put_contents('data/actions', json_encode($vars)."\n", FILE_APPEND);
-			}
-		}
-	}
-	
-}
-
-function devlog($serial, $txt) {
-	echo $txt."\n";
-	file_put_contents('dev/log/'.preg_replace('/[^\w\d+]/','', $serial), $txt."\n", FILE_APPEND);
-	file_put_contents('log.txt', $txt."\n", FILE_APPEND);
-}
-
-function getSys($c, $matchers = false) {
-	exec($c, $out, $res);
-	if ($res !== 0) return false;
-	if ($matchers !== false) {
-		$rv = array();
-		foreach ($out as $line) {
-			foreach ($matchers as $matcher) {
-				if (preg_match($matcher[0], $line, $m)) {
-					if (!isset($matcher[1])) {
-						$rv[] = isset($m[1]) ? $m[1] : 1;
-					} elseif ($matcher[1] === true) {
-						$rv[$m[1]] = $m[2];
-					} elseif (is_array($matcher[1])) {
-						$o = array();
-						for ($i = 0; $i < count($matcher[1]); $i ++) {
-							$o[$matcher[1][$i]] = $m[$i + 1];
-						}
-						$rv[] = $o;
-					} else {
-						$o = array();
-						for ($i = 1; $i < count($matcher); $i ++) {
-							$o[$matcher[$i]] = $m[$i];
-						}
-						$rv[] = $o;
-					}
-				}
-			}
-		}
-		return $rv;
-	}
-	return $out;
-}
+//dbg($devices);

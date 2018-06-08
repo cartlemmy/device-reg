@@ -7,3 +7,4 @@ required-apks
 data
 *.pid
 inc/config.inc.php
+new-device

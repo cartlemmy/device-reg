@@ -37,9 +37,11 @@ fi
 ./proc.php
 
 if ps aux | grep "[u]sb-check-loop.sh"; then
-	echo "Pali Mevice Manager is already running"
+	echo "PaliDevice Manager is already running"
 	exit
 else
 	echo "Starting Pali Device Manager"
-	nohup ./usb-check-loop.sh & echo $! > ./usb-check-loop.pid
+	echo "" > ./log.txt
+	touch first-run
+	nohup ./usb-check-loop.sh >/dev/null & echo $! > ./usb-check-loop.pid
 fi
