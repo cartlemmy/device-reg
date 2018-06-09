@@ -60,7 +60,7 @@ foreach ($devices as $devNum=>$device) {
 	}
 	
 	if (!isset($device["regState"])) {
-		$device["regState"] = "new";		
+		$device["regState"] = "new";
 		dbg('New device found '.json_encode($device));
 		file_put_contents('data/actions', json_encode(array(
 			"action"=>"new-device",
@@ -80,8 +80,28 @@ foreach ($devices as $devNum=>$device) {
 	
 	$notDisconnected[] = $device["serial"];
 	$device["stateFlags"] = array("usb-tethered"=>1);
-	
 	$device["tetheredTo"] = CHARGING_STATION.'.'.$device["port"];
+	
+	if (($propsIn = getSys('adb -s '.$serArg.' shell getprop')) !== false) {
+		$props = array();
+		foreach ($propsIn as $prop) {
+			if (preg_match('/\[([\w\d\.]+)\]\:\s*\[([^\]]+)\]/', $prop, $m)) {
+				$path = explode('.', $m[1]);
+				$branch = &$props;
+				while ($n = array_shift($path)) {
+					if (count($path)) {
+						if (!isset($branch[$n])) $branch[$n] = array();
+						$branch = &$branch[$n];
+					} else {
+						$branch[$n] = $m[2];
+					}
+					
+				}
+				unset($branch);
+			}
+		}
+		print_r($props);
+	}
 	
 	if (($batteryRaw = getSys('adb -s '.$serArg.' shell dumpsys battery')) !== false) {
 		$device["stateFlags"]["batt-full"] = 0;
@@ -140,8 +160,10 @@ foreach ($devices as $devNum=>$device) {
 			if (!isset($device["termux-init"]) || time() > $device["termux-init"] + 2) {
 				dbg('Initializing termux for '.$device["serial"]);
 				
+				/* TODO: uncomment
 				sendInputFromFile($device["serial"], 'inc/termux-init.sh.php');
 				$device["termux-init"] = time();
+				*/
 			}
 		}
 		if ($dp = opendir('required-apks')) {

@@ -282,7 +282,7 @@ function devlog($serial, $txt) {
 }
 
 function getSys($c, $matchers = false) {
-	verbose($c);
+	dbg('getSys: '.$c);
 	exec($c.' 2>&1', $out, $res);
 	if ($res !== 0) {
 		dbg($out);
