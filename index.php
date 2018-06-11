@@ -17,6 +17,15 @@ if (isset($_GET["tl"])) {
 	exit();
 }
 
+if (isset($_GET["start"])) {
+	if (!function_exists('curl_init')) {
+		echo "The PHP Curl module is not installed.\n";
+		exit(1);
+	}
+	echo "HTTP service is responding from ".$_SERVER["SERVER_NAME"].$_SERVER["REQUEST_URI"]."\n";
+	exit(0);
+}
+
 $info = array();
 
 $addr = $_SERVER["REMOTE_ADDR"];
@@ -46,11 +55,13 @@ unset($out);
 
 $cmd = 'grep -ir '.escapeshellarg($mac).' dev/state 2>&1';
 
-exec($cmd, $out);
-$file = explode(':  ', $out[0]);
-$file = array_shift($file);
-if (is_file($file) && ($state = json_decode(file_get_contents($file),true))) {
-	if (isset($state["serial"])) $info["serial"] = $state["serial"];
+exec($cmd, $out, $rv);
+if ($rv === 0) {
+	$file = explode(':  ', $out[0]);
+	$file = array_shift($file);
+	if (is_file($file) && ($state = json_decode(file_get_contents($file),true))) {
+		if (isset($state["serial"])) $info["serial"] = $state["serial"];
+	}
 }
 
 if (isset($_GET["redir"])) {
