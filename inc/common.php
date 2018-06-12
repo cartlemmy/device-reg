@@ -130,6 +130,7 @@ function canSee($serial, $host) {
 }
 
 function sendInputFromFile($serial, $file, $intent = 'com.termux/com.termux.app.TermuxActivity') {
+	
 	if (substr($file, -4) === '.php') {
 		ob_start();
 		require($file);
@@ -141,6 +142,8 @@ function sendInputFromFile($serial, $file, $intent = 'com.termux/com.termux.app.
 		file_put_contents($file, ob_get_clean());
 	}
 	dbg('PHP file parsed to: '.$file);
+
+	return $file;
 	
 	if (is_file($file) && ($fp = fopen($file, 'r'))) {
 		adbCommand($serial, 'input keyevent 82', 'input touchscreen swipe 300 1024 300 10 1000', 'am start -n '.$intent);
