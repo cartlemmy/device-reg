@@ -83,6 +83,23 @@ function devAddShortcut($serial) {
 	);
 }
 
+function getList($n) {
+	$rv = array();
+	if ($dp = opendir('data/'.$n)) {
+		while (($file = readdir($dp)) !== false) {
+			if (substr($file, 0, 1) === '.') continue;
+			if (is_file('data/'.$n.'/'.$file)) $rv[] = $file;
+		}
+		closedir($dp);
+	}
+	return $rv;
+}
+
+function isInList($n) {
+	$list = getList($n);
+	return is_array($list) && in_array($n, $list);
+}
+
 function devSetProp($serial, $n, $v) {
 	return adbCommand(
 		$serial,
@@ -288,6 +305,7 @@ function getSys($c, $matchers = false) {
 	dbg('getSys: '.$c);
 	exec($c.' 2>&1', $out, $res);
 	if ($res !== 0) {
+		dbg('FAILED: getSys: '.$c);
 		dbg($out);
 		return false;
 	}

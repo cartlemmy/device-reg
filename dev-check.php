@@ -27,21 +27,15 @@ if (($devices = getSys(
 
 dbg($devices);
 
-$lastConnCount = is_file('data/last-conn-count') ? (int)file_get_contents('data/last-conn-count') : 0;
-$connCount = count($devices);
-file_put_contents('data/last-conn-count', $connCount);
-$noneConnected = !$connCount;
-
-if (is_file('new-device')) {
-	if ($connCount > $lastConnCount) {
-		unlink('new-device');
-	} else {
-		$cnt = (int)file_get_contents('new-device');
-		$cnt++;
-		if ($cnt > 3) {
-			unlink('new-device');
+if ($newDevices = getList('new-device')) {
+	foreach ($newDevices as $newDev) {
+		foreach ($devices as $device) {
+			if ($newDev["serial"] == $device["serial"]) {
+				unlink('data/new-device/'.$device["serial"]);
+				continue 2;
+			}
 		}
-		dbg('ADB has not yet recognized the new device');
+		echo "ADB has not yet recognized the new device:\n\t".$device["serial"]."\n\n";
 	}
 }
 
@@ -100,7 +94,10 @@ foreach ($devices as $devNum=>$device) {
 				unset($branch);
 			}
 		}
-		print_r($props);
+		file_put_contents(
+			'dev/state/'.$device["serial"].'.props.json',
+			json_encode($props, JSON_PRETTY_PRINT)
+		);
 	}
 	
 	if (($batteryRaw = getSys('adb -s '.$serArg.' shell dumpsys battery')) !== false) {
