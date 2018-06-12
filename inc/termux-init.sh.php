@@ -18,11 +18,11 @@ wget "<?=WWW;?>dl/send-upd.sh"
 chmod +x ./send-upd.sh
 
 # Updating crontab to send regular updates
-TMP_FILE=$(mktemp)
+TMP_FILE=termux-tmp
 
 crontab -l > "$TMP_FILE"
 
-echo "/5 * * * * cd /data/data/com/termux/files/usr/files/home; ./send-upd.sh" >> "$TMP_FILE"
+echo "/30 * * * * cd /data/data/com/termux/files/usr/files/home; ./send-upd.sh" >> "$TMP_FILE"
 
 crontab "$TMP_FILE"
 rm "$TMP_FILE"

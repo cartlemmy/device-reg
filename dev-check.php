@@ -200,7 +200,7 @@ if ($fp = @fopen('data/actions', 'r')) {
 		$line = fgets($fp);
 		if ($deviceFromAction = json_decode($line, true)) {
 			$action = $deviceFromAction["action"];
-			if ($noneConnected && !'disconnect') {
+			if ($noneConnected && $action != 'disconnect') {
 				$newActions[] = $line;
 				continue;
 			}

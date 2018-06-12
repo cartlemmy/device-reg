@@ -74,11 +74,10 @@ if (($lines = tailFile(SYSLOG_LOCATION, '\susb\s|gvfs\-mtp\-volume|gvfsd')) !== 
 					
 					switch ($vars["action"]) {
 						case "new-device":
-							
+							file_put_contents('new-device', 0);
 							if (!isset($vars["serial"])) {
 								continue 2;
 							}
-							file_put_contents('data/new-device/'.$vars["serial"], time());
 							//file_put_contents('dev/'.$vars["port"], json_encode($vars, JSON_PRETTY_PRINT));
 							break;
 						
@@ -108,7 +107,7 @@ if (is_file('first-run')) {
 	unlink('first-run');
 }
 
-if (count(getList('new-device'))) {
+if (is_file('new-device')) {
 	$callDevCheck = true;
 }
 

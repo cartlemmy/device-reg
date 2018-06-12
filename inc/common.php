@@ -263,8 +263,8 @@ function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.inte
 					"serial"=>$serial,
 					"path"=>$path				
 				);
-				devlog($serial, "Queueing open URL retry ".json_encode($vars));
-				file_put_contents('data/actions', json_encode($vars)."\n", FILE_APPEND);
+				/*devlog($serial, "Queueing open URL retry ".json_encode($vars));
+				file_put_contents('data/actions', json_encode($vars)."\n", FILE_APPEND);*/
 			}
 		}
 	}
@@ -296,7 +296,7 @@ function clearGlobal($n) {
 }
 
 function devlog($serial, $txt) {
-	echo $txt."\n";
+	//ho $txt."\n";
 	file_put_contents('dev/log/'.preg_replace('/[^\w\d+]/','', $serial), $txt."\n", FILE_APPEND);
 	file_put_contents('log.txt', $txt."\n", FILE_APPEND);
 }
