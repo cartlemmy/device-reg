@@ -155,7 +155,7 @@ foreach ($devices as $devNum=>$device) {
 		if (in_array("com.kingroot.kinguser", $packages)) $device["rooted"] = 1;
 		if (in_array("com.termux", $packages) && in_array("com.termux.api", $packages)) {
 			if (
-				(isset($device["termux-init"]) && 
+				isset($device["termux-init"]) && 
 				(!isset($device["termux-init-request"]) || time() > $device["termux-init-request"] + 300)
 			) {
 				dbg('Initializing termux for '.$device["serial"]);
