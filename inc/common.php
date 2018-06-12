@@ -202,6 +202,8 @@ function escapeADBInputText($txt) {
 }
 
 function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.intent.action.VIEW') {
+	return true;
+	
 	$url = $path;
 	
 	if (preg_match('/^(http|https)\:\/\/([A-Za-z0-9\.\-]+)\//', $path, $host)) {

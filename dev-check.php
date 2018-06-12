@@ -154,15 +154,16 @@ foreach ($devices as $devNum=>$device) {
 		$device["packages"] = array();	
 		if (in_array("com.kingroot.kinguser", $packages)) $device["rooted"] = 1;
 		if (in_array("com.termux", $packages) && in_array("com.termux.api", $packages)) {
-			if (!isset($device["termux-init-request"]) || time() > $device["termux-init-request"] + 2) {
+			if (
+				(isset($device["termux-init"]) && 
+				(!isset($device["termux-init-request"]) || time() > $device["termux-init-request"] + 300)
+			) {
 				dbg('Initializing termux for '.$device["serial"]);
 				
 				
 				if ($file = sendInputFromFile($device["serial"], 'inc/termux-init.sh.php')) {
-					$device["termux-init-request"] = time();
-					
+					$device["termux-init-request"] = time();					
 				}
-				
 			}
 		}
 		if ($dp = opendir('required-apks')) {
