@@ -39,8 +39,10 @@ if ($newDevices = getList('new-device')) {
 	}
 }
 
+$overview = array(array("Device"));
 $notDisconnected = array();
 foreach ($devices as $devNum=>$device) {
+	$overviewFlags = array();
 	$serArg = escapeshellarg($device["serial"]);
 	
 	$stateFile = 'dev/state/'.$device["serial"];
@@ -61,12 +63,14 @@ foreach ($devices as $devNum=>$device) {
 			"serial"=>$device["serial"],
 			"port"=>$device["port"]
 		))."\n", FILE_APPEND);
+		$overviewFlags = array("NEW");
 	}
+	
 	
 	if (!isset($device["tetheredTo"]) || !$device["tetheredTo"] || $device["tetheredTo"] == 'NULL') {
 		dbg('Connected: '.$device["serial"]);
 		file_put_contents('data/actions', json_encode(array(
-			"action"=>"connected",
+			"action"=>"connected", 
 			"serial"=>$device["serial"],
 			"port"=>$device["port"]
 		))."\n", FILE_APPEND);
@@ -113,6 +117,7 @@ foreach ($devices as $devNum=>$device) {
 		$device["battery"]["status"] = $androidData["battery"]["status"][$device["battery"]["status"]];
 		$device["battery"]["health"] = $androidData["battery"]["health"][$device["battery"]["health"]];
 		
+		$overviewFlags[] = 'BATT:'.$device["battery"]["level"].'%,'.$device["battery"]["status"].",".$device["battery"]["health"];
 		$device["stateFlags"]["batt-".strtolower($device["battery"]["status"])] = 1;
 		$device["stateFlags"]["batt-health-".strtolower($device["battery"]["health"])] = 1;
 	}
@@ -141,7 +146,7 @@ foreach ($devices as $devNum=>$device) {
 		}
 		
 	}
-	
+	$installed = array();
 	$device["rooted"] = 0;
 	if (($packages = getSys(
 		'adb -s '.$serArg.' shell pm list packages',
@@ -166,6 +171,16 @@ foreach ($devices as $devNum=>$device) {
 				}
 			}
 		}
+		$showPackages = array(
+			'com.android.vending'=>'Google Play Store',
+			'com.termux'=>'Termux',
+			'com.termux.api'=>'Termux API'			
+		);
+		
+		foreach ($showPackages as $n=>$label) {
+			if (in_array($n, $packages)) $installed[] = $label;
+		}
+		
 		if ($dp = opendir('required-apks')) {
 			while (($file = readdir($dp)) !== false) {
 				$path = 'required-apks/'.$file;
@@ -191,9 +206,26 @@ foreach ($devices as $devNum=>$device) {
 	$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') ? 1 : 0;
 	$device["stateFlags"]["controller-connected"] = canSee( $device["serial"], $locs[0]) ? 1 : 0;	
 	
+	if ($device["stateFlags"]["wan-connected"]) $overviewFlags[] = 'WAN';
+	if ($device["stateFlags"]["controller-connected"]) $overviewFlags[] = 'CONT';
+	
 	$devices[$devNum] = $device;
+	
+	$overview[] = array(
+		$device["serial"],
+		$device["regState"],
+		implode(" ", $overviewFlags),
+		count($installed) ? 'Installed: '.implode(", ", $installed) : ''
+	);
 }
 unset($device);
+
+ob_start();
+//echo "== Attached Devices ==";
+foreach ($overview as $i=>$l) {
+	echo implode("   ", $l)."\n";
+}
+file_put_contents('dev/overview.txt', ob_get_clean());
 
 $newActions = array();
 if ($fp = @fopen('data/actions', 'r')) {

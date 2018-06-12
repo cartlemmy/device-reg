@@ -56,6 +56,7 @@ function installAPKInDir($serial, $dir) {
 		while (($file = readdir($dp)) !== false) {
 			$f = explode('.', $file);
 			if (array_pop($f) == 'apk') {
+				dbg('Installing '.$file);
 				exec('adb -s '.escapeshellarg($serial).' install '.escapeshellarg($dir.'/'.$file));
 				/*if (is_file($dir.'/README.txt')) {
 					devOpenURL(escapeshellarg($serial), $dir.'/README.txt');
