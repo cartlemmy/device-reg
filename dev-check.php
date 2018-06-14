@@ -25,7 +25,7 @@ if (($devices = getSys(
 	$devices = array();
 }
 
-dbg($devices);
+verbose($devices);
 
 if ($newDevices = getList('new-device')) {
 	foreach ($newDevices as $newDev) {
@@ -48,6 +48,18 @@ foreach ($devices as $devNum=>$device) {
 	$stateFile = 'dev/state/'.$device["serial"];
 
 	$state = is_file($stateFile) ? json_decode(file_get_contents($stateFile), true) : array();
+	
+	if (
+		isset($state["lastScan"]) && 
+		($state["lastScan"] > time() - DEV_CHECK_MAX_SCAN_FREQUENCY) 
+	) {
+		verbose(
+			'Will scan '.$device["serial"].' in '.
+			($state["lastScan"] - (time() - DEV_CHECK_MAX_SCAN_FREQUENCY)).
+			' seconds'
+		);
+		continue;
+	}
 	
 	if ($state) {
 		foreach ($state as $n=>$v) {
@@ -156,6 +168,7 @@ foreach ($devices as $devNum=>$device) {
 			)
 		)		
 	)) !== false) {
+		//dbg($packages); continue;
 		$device["packages"] = array();	
 		if (in_array("com.kingroot.kinguser", $packages)) $device["rooted"] = 1;
 		if (in_array("com.termux", $packages) && in_array("com.termux.api", $packages)) {
@@ -164,7 +177,6 @@ foreach ($devices as $devNum=>$device) {
 				(!isset($device["termux-init-request"]) || time() > $device["termux-init-request"] + 300)
 			) {
 				dbg('Initializing termux for '.$device["serial"]);
-				
 				
 				if ($file = sendInputFromFile($device["serial"], 'inc/termux-init.sh.php')) {
 					$device["termux-init-request"] = time();					
@@ -203,7 +215,7 @@ foreach ($devices as $devNum=>$device) {
 	//echo "!!! ".print_r($packages, true)."\n";
 	$locs = explode("\n", trim(file_get_contents('data/locs')));
 	
-	$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') ? 1 : 0;
+	$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') !== -1 ? 1 : 0;
 	
 	if (!isset($device["lastSeenByController"]) || time() > $device["lastSeenByController"]	+ 120) {
 		$check = array();
@@ -217,7 +229,7 @@ foreach ($devices as $devNum=>$device) {
 		$device["connectedToController"] = false;
 		
 		foreach ($check as $loc) {
-			if (canSee( $device["serial"], $loc)) {
+			if (canSee( $device["serial"], $loc) !== -1) {
 				$device["stateFlags"]["controller-connected"] = 1;
 				$device["connectedToController"] = $loc;
 				$device["lastSeenByController"] = time();
@@ -229,6 +241,7 @@ foreach ($devices as $devNum=>$device) {
 	if ($device["stateFlags"]["wan-connected"]) $overviewFlags[] = 'WAN';
 	if ($device["stateFlags"]["controller-connected"]) $overviewFlags[] = 'CTC('.$device["connectedToController"].')';
 	
+	$device["lastScan"] = time();
 	$devices[$devNum] = $device;
 	
 	$overview[] = array(

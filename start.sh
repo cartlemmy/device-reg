@@ -23,6 +23,10 @@ if [ ! -d data/new-device ]; then
 	mkdir -p data/new-device
 fi
 
+if [ ! -d data/cache ]; then
+	mkdir -p data/cache
+fi
+
 if [ ! -d dev ]; then
 	mkdir dev
 	mkdir dev/log

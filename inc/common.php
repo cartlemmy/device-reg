@@ -1,5 +1,8 @@
 <?php
 
+if (!defined('CACHE_DIR')) define('CACHE_DIR', realpath(__DIR__.'/..').'/data/cache');
+if (!defined('DEV_CHECK_MAX_SCAN_FREQUENCY')) define('DEV_CHECK_MAX_SCAN_FREQUENCY', 5);
+
 function tailFile($file, $match = false) {
 	$rv = array();
 	$posFile = 'data/pos-'.preg_replace('/[^\w\d\-]/','_',$file);
@@ -137,14 +140,43 @@ function adbCommand() {
 	return $out;
 }
 
-function canSee($serial, $host) {
+function canSee($serial, $host, $cacheFor = 300) {
+	return cacheResult($host, $cacheFor, '_canSee', $serial, $host, $cacheFor);
+}
+
+function _canSee($serial, $host, $cacheFor) {
 	if (($wan = getSys(
 		'adb -s '.escapeshellarg($serial).' shell ping -c 1 '.escapeshellarg($host),
-		array(array('/1 received/'))
+		array(
+			array(
+				'/(\d+)\s+bytes\s+from.*?time=([\d\.]+)/',
+				array('size','ping')
+			)
+		)
 	)) !== false) {
-		return count($wan) == 0 || trim($wan[0]) == "" ? false : true;
+		return $wan["ping"];
 	}
 	return null;
+}
+
+function cacheResult() {
+	//cacheResult($host, $cacheFor, '_canSee', $serial, $host, $cacheFor);
+	$args = func_get_args();
+	$name = array_shift($args);
+	$cacheFor = array_shift($args);
+	$func = array_shift($args);
+	$funcName = is_array($func) ? json_encode($func) : $func;
+	$fileName = CACHE_DIR.'/'.strtr(urlencode($funcName.'_'.$name), '%', '_');
+	if (is_file($fileName) && ($filemtime = filemtime($fileName)) > time() - $cacheFor) {
+		$raw = file_get_contents($fileName);
+		dbg('cached: '.$fileName." (".$raw.")\n\tValid for ".($filemtime - (time() - $cacheFor)).' seconds');
+		return json_decode($raw, true);
+	}
+	$res = call_user_func_array($func, $args);
+	if (!file_put_contents($fileName, json_encode($res, JSON_PRETTY_PRINT))) {
+		dbg('Failed to cache '.$fileName);
+	}
+	return $res;
 }
 
 function sendInputFromFile($serial, $file, $intent = 'com.termux/com.termux.app.TermuxActivity') {
@@ -208,7 +240,7 @@ function devOpenURL($serial, $path, $noRetry = false, $intent = '-a android.inte
 	$url = $path;
 	
 	if (preg_match('/^(http|https)\:\/\/([A-Za-z0-9\.\-]+)\//', $path, $host)) {
-		if (!canSee($serial, $host[2])) {
+		if (canSee($serial, $host[2]) === -1) {
 			devlog($serial, 'Cannot connect to '.$host[2]);
 			return false;
 		}
@@ -305,7 +337,7 @@ function devlog($serial, $txt) {
 }
 
 function getSys($c, $matchers = false) {
-	dbg('getSys: '.$c);
+	verbose('getSys: '.$c);
 	exec($c.' 2>&1', $out, $res);
 	if ($res !== 0) {
 		dbg('FAILED: getSys: '.$c);
@@ -315,9 +347,11 @@ function getSys($c, $matchers = false) {
 
 	if ($matchers !== false) {
 		$rv = array();
+		$cnt = 0;
 		foreach ($out as $line) {
 			foreach ($matchers as $matcher) {
 				if (preg_match($matcher[0], $line, $m)) {
+					$cnt++;
 					if (!isset($matcher[1])) {
 						$rv[] = isset($m[1]) ? $m[1] : 1;
 					} elseif ($matcher[1] === true) {
@@ -338,7 +372,9 @@ function getSys($c, $matchers = false) {
 				}
 			}
 		}
-		return $rv;
+		if ($cnt) return $rv;
+		dbg($out);
+		return null;
 	}
 	return $out;
 }

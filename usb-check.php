@@ -112,7 +112,7 @@ if (is_file('new-device')) {
 }
 
 if ($callDevCheck || filesize('data/actions') || !is_file('data/dev-check-ran') || time() > filemtime('data/dev-check-ran') + 30) { 
-	dbg('running dev-check');
+	//dbg('running dev-check');
 	exec('./dev-check.php 2>&1', $out, $rv);
 	if ($rv !== 0) dbg(implode("\n", $out));
 	touch('data/dev-check-ran');
