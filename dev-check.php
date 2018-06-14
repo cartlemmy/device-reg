@@ -204,10 +204,30 @@ foreach ($devices as $devNum=>$device) {
 	$locs = explode("\n", trim(file_get_contents('data/locs')));
 	
 	$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') ? 1 : 0;
-	$device["stateFlags"]["controller-connected"] = canSee( $device["serial"], $locs[0]) ? 1 : 0;	
+	
+	if (!isset($device["lastSeenByController"]) || time() > $device["lastSeenByController"]	+ 120) {
+		$check = array();
+		if (isset($device["connectedToController"])) {
+			$check[] = $device["connectedToController"]; //check this one first
+		}
+		foreach ($locs as $loc) {
+			if (!in_array($loc, $check)) $check[] = $loc;
+		}
+		$device["stateFlags"]["controller-connected"] = 0;
+		$device["connectedToController"] = false;
+		
+		foreach ($check as $loc) {
+			if (canSee( $device["serial"], $loc)) {
+				$device["stateFlags"]["controller-connected"] = 1;
+				$device["connectedToController"] = $loc;
+				$device["lastSeenByController"] = time();
+				break;
+			}
+		}
+	}	
 	
 	if ($device["stateFlags"]["wan-connected"]) $overviewFlags[] = 'WAN';
-	if ($device["stateFlags"]["controller-connected"]) $overviewFlags[] = 'CONT';
+	if ($device["stateFlags"]["controller-connected"]) $overviewFlags[] = 'CTC('.$device["connectedToController"].')';
 	
 	$devices[$devNum] = $device;
 	
