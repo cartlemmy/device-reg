@@ -7,6 +7,7 @@ $androidData = require('inc/android-data.php');
 require_once('inc/common.php');
 require('inc/proc.php');
 
+dbg(true);
 exec("pgrep dev-check.php", $pids);
 if (count(explode("\n",trim(implode("\n",$pids)))) >= 2) {
 	verbose("dev-check.php already running");
@@ -50,6 +51,7 @@ foreach ($devices as $devNum=>$device) {
 	$state = is_file($stateFile) ? json_decode(file_get_contents($stateFile), true) : array();
 	
 	if (
+		$device["regState"] == 'ready' &&
 		isset($state["lastScan"]) && 
 		($state["lastScan"] > time() - DEV_CHECK_MAX_SCAN_FREQUENCY) 
 	) {
@@ -58,6 +60,9 @@ foreach ($devices as $devNum=>$device) {
 			($state["lastScan"] - (time() - DEV_CHECK_MAX_SCAN_FREQUENCY)).
 			' seconds'
 		);
+		if (is_file($stateFile.'.ov')) {
+			$overview[] = json_decode(file_get_contents($stateFile.'.ov'), true);
+		}
 		continue;
 	}
 	
@@ -158,6 +163,42 @@ foreach ($devices as $devNum=>$device) {
 		}
 		
 	}
+	
+	$locs = explode("\n", trim(file_get_contents('data/locs')));
+	if ($device["stateFlags"]["lan-connected"]) {
+		$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') !== -1 ? 1 : 0;
+	
+	
+		if (!isset($device["lastSeenByController"]) || time() > $device["lastSeenByController"]	+ 10) {
+			$check = array();
+			if (isset($device["connectedToController"])) {
+				$check[] = $device["connectedToController"]; //check this one first
+			}
+			foreach ($locs as $loc) {
+				if (!in_array($loc, $check)) $check[] = $loc;
+			}
+			
+			$device["stateFlags"]["controller-connected"] = 0;
+			$device["connectedToController"] = false;
+			
+			foreach ($check as $loc) {
+				if (canSee( $device["serial"], $loc, 5) !== -1) {
+					$device["stateFlags"]["controller-connected"] = 1;
+					$device["connectedToController"] = $loc;
+					$device["lastSeenByController"] = time();
+					break;
+				}
+			}
+		}	
+	} else {
+		$device["stateFlags"]["controller-connected"] = 0;
+		$device["connectedToController"] = false;
+		$device["stateFlags"]["wan-connected"] = 0;
+	}
+	if ($device["stateFlags"]["wan-connected"]) $overviewFlags[] = 'WAN';
+	if ($device["stateFlags"]["controller-connected"]) $overviewFlags[] = 'CTC('.$device["connectedToController"].')';
+	
+	
 	$installed = array();
 	$device["rooted"] = 0;
 	if (($packages = getSys(
@@ -172,15 +213,49 @@ foreach ($devices as $devNum=>$device) {
 		$device["packages"] = array();	
 		if (in_array("com.kingroot.kinguser", $packages)) $device["rooted"] = 1;
 		if (in_array("com.termux", $packages) && in_array("com.termux.api", $packages)) {
-			if (
-				isset($device["termux-init"]) && 
-				(!isset($device["termux-init-request"]) || time() > $device["termux-init-request"] + 300)
-			) {
-				dbg('Initializing termux for '.$device["serial"]);
-				
-				if ($file = sendInputFromFile($device["serial"], 'inc/termux-init.sh.php')) {
-					$device["termux-init-request"] = time();					
+			
+			if (!$device["termux-setup"] && $device["stateFlags"]["controller-connected"]) {
+				if ($res = getSys(
+					'adb -s '.$serArg.' ls /storage/sdcard0/Documents'
+				)) {
+					$res = implode("\n", $res);
+					dbg('adb -s '.$serArg.' ls /storage/sdcard0/Documents'."\n".$res);
+					if (
+						!$device["termux-setup-started"] &&
+						strpos($res, 'termux-setup-started') !== false
+					) {
+						$device["termux-setup-started"] = time();
+						$device["regState"] = "setup-termux";
+					}
+					if (
+						strpos($res, 'termux-setup-complete') !== false
+					) {
+						$device["termux-setup"] = time();
+						$device["regState"] = "needs-reg";
+					}
 				}
+				
+				if (
+					(
+						!isset($device["termux-setup-started"]) ||
+						time() > $device["termux-init-request"] + 120
+					) && (
+						!isset($device["termux-init-request"]) ||
+						time() > $device["termux-init-request"] + 30
+					)
+				) {
+					dbg('Initializing termux for '.$device["serial"]);
+					parseScript('inc/termux-setup.sh.php');
+					$device["termux-init-request"] = time();	
+					$device["regState"] = "wait-termux";
+					if ($file = sendInputFromFile($device["serial"], 'inc/termux-init.sh.php')) {
+						dbg('YAY');
+					}
+				} elseif ($device["termux-init-request"] && !$device["termux-setup"]) {
+					
+				}
+			} else {
+				//$device["regState"] = "wait-cont";
 			}
 		}
 		$showPackages = array(
@@ -211,50 +286,24 @@ foreach ($devices as $devNum=>$device) {
 			closedir($dp);
 		}
 	}
-	//echo '!!! adb -s '.$serArg.' shell pm list packages'."\n";
-	//echo "!!! ".print_r($packages, true)."\n";
-	$locs = explode("\n", trim(file_get_contents('data/locs')));
-	
-	$device["stateFlags"]["wan-connected"] = canSee( $device["serial"], 'paliportal.com') !== -1 ? 1 : 0;
-	
-	if (!isset($device["lastSeenByController"]) || time() > $device["lastSeenByController"]	+ 120) {
-		$check = array();
-		if (isset($device["connectedToController"])) {
-			$check[] = $device["connectedToController"]; //check this one first
-		}
-		foreach ($locs as $loc) {
-			if (!in_array($loc, $check)) $check[] = $loc;
-		}
-		$device["stateFlags"]["controller-connected"] = 0;
-		$device["connectedToController"] = false;
-		
-		foreach ($check as $loc) {
-			if (canSee( $device["serial"], $loc) !== -1) {
-				$device["stateFlags"]["controller-connected"] = 1;
-				$device["connectedToController"] = $loc;
-				$device["lastSeenByController"] = time();
-				break;
-			}
-		}
-	}	
-	
-	if ($device["stateFlags"]["wan-connected"]) $overviewFlags[] = 'WAN';
-	if ($device["stateFlags"]["controller-connected"]) $overviewFlags[] = 'CTC('.$device["connectedToController"].')';
-	
+
 	$device["lastScan"] = time();
 	$devices[$devNum] = $device;
 	
-	$overview[] = array(
-		$device["serial"],
+	$ov = array(
+		isset($device["paliDeviceID"]) ? $device["paliDeviceID"] : $device["serial"],
+		$device["lanIP"],
 		$device["regState"],
 		implode(" ", $overviewFlags),
 		count($installed) ? 'Installed: '.implode(", ", $installed) : ''
 	);
+	file_put_contents($stateFile.'.ov', json_encode($ov));
+	$overview[] = $ov;
 }
 unset($device);
 
 ob_start();
-//echo "== Attached Devices ==";
+echo "== ATTACHED DEVICES ".date('Y-m-d H:i:s')."\n";
 foreach ($overview as $i=>$l) {
 	echo implode("   ", $l)."\n";
 }
@@ -353,16 +402,17 @@ foreach ($devices as $device) {
 		$updated = parseDeviceData($updated);
 		if ($res = ppReq('PUT', 'device', false, $updated)) {
 			if (isset($res["res"]["commands"]) && $device["tetheredTo"] != "NULL") {
+				//dbg($res);
 				foreach ($res["res"]["commands"] as $command) {
 					array_splice($command, 1, 0, array($device["serial"]));
-					//print_r($command);
+					
 					call_user_func_array('deviceCommand',$command);
 				}
 			}
-			//echo json_encode($res)."\n";
+			dbg($res);
 		}
-		file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT));
 	}
+	file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT));
 }
 
 //dbg($devices);

@@ -27,11 +27,18 @@ function tailFile($file, $match = false) {
 }
 
 function dbg($txt) {
-	if (!is_string($txt)) $txt = json_encode($txt, JSON_PRETTY_PRINT);
-	file_put_contents(realpath(__DIR__.'/..').'/log.txt', $txt."\n", FILE_APPEND);;
+	if ($txt !== true && !is_string($txt)) $txt = json_encode($txt, JSON_PRETTY_PRINT);
+	file_put_contents(
+		realpath(__DIR__.'/..').'/log.txt',
+		$txt === true ? ". " : $txt."\n",
+		FILE_APPEND
+	);
 }
 
 function verbose($txt) {
+	if (!defined('DEV_REG_VERBOSE')) return;
+	if (!DEV_REG_VERBOSE) return;
+	dbg($txt);
 }
 
 
@@ -140,11 +147,11 @@ function adbCommand() {
 	return $out;
 }
 
-function canSee($serial, $host, $cacheFor = 300) {
-	return cacheResult($host, $cacheFor, '_canSee', $serial, $host, $cacheFor);
+function canSee($serial, $host, $cacheFor = 20) {
+	return cacheResult($serial, $host, $cacheFor, '_canSee', $host);
 }
 
-function _canSee($serial, $host, $cacheFor) {
+function _canSee($serial, $host) {
 	if (($wan = getSys(
 		'adb -s '.escapeshellarg($serial).' shell ping -c 1 '.escapeshellarg($host),
 		array(
@@ -153,50 +160,58 @@ function _canSee($serial, $host, $cacheFor) {
 				array('size','ping')
 			)
 		)
-	)) !== false) {
-		return $wan["ping"];
+	)) !== null) {
+		verbose($wan[0]);
+		return (float)$wan[0]["ping"];
 	}
-	return null;
+	return -1;
 }
 
 function cacheResult() {
-	//cacheResult($host, $cacheFor, '_canSee', $serial, $host, $cacheFor);
 	$args = func_get_args();
+	$serial = array_shift($args);
 	$name = array_shift($args);
 	$cacheFor = array_shift($args);
 	$func = array_shift($args);
+	array_unshift($args, $serial);
 	$funcName = is_array($func) ? json_encode($func) : $func;
-	$fileName = CACHE_DIR.'/'.strtr(urlencode($funcName.'_'.$name), '%', '_');
-	if (is_file($fileName) && ($filemtime = filemtime($fileName)) > time() - $cacheFor) {
+	$fileName = CACHE_DIR.'/'.strtr(urlencode($serial.$funcName.'_'.$name), '%', '_');
+	if ($cacheFor && is_file($fileName) && ($filemtime = filemtime($fileName)) > time() - $cacheFor) {
 		$raw = file_get_contents($fileName);
-		dbg('cached: '.$fileName." (".$raw.")\n\tValid for ".($filemtime - (time() - $cacheFor)).' seconds');
+		verbose('cached: '.$fileName." (".$raw.")\n\tValid for ".($filemtime - (time() - $cacheFor)).' seconds');
 		return json_decode($raw, true);
 	}
 	$res = call_user_func_array($func, $args);
+	verbose($serial.$funcName.' '.json_encode($res));
 	if (!file_put_contents($fileName, json_encode($res, JSON_PRETTY_PRINT))) {
 		dbg('Failed to cache '.$fileName);
 	}
 	return $res;
 }
 
+function parseScript($file) {
+	ob_start();
+	require($file);
+	$file = str_replace(
+		array('inc/', '.php'),
+		array('dl/', ''),
+		$file
+	);
+	file_put_contents($file, ob_get_clean());
+	return $file;
+}
+
 function sendInputFromFile($serial, $file, $intent = 'com.termux/com.termux.app.TermuxActivity') {
 	
 	if (substr($file, -4) === '.php') {
-		ob_start();
-		require($file);
-		$file = str_replace(
-			array('inc/', '.php'),
-			array('dl/', ''),
-			$file
-		);
-		file_put_contents($file, ob_get_clean());
+		$file = parseScript($file);
 	}
-	dbg('PHP file parsed to: '.$file);
+	verbose('PHP file parsed to: '.$file);
 
-	return $file;
+	//return $file;
 	
 	if (is_file($file) && ($fp = fopen($file, 'r'))) {
-		adbCommand($serial, 'input keyevent 82', 'input touchscreen swipe 300 1024 300 10 1000', 'am start -n '.$intent);
+		//adbCommand($serial, 'input keyevent 82', 'input touchscreen swipe 300 1024 300 10 1000', 'am start -n '.$intent);
 		sleep(4);
 		$i = 0;
 		while (!feof($fp)) {
@@ -344,6 +359,8 @@ function getSys($c, $matchers = false) {
 		dbg($out);
 		return false;
 	}
+	
+	verbose($out, $res);
 
 	if ($matchers !== false) {
 		$rv = array();
@@ -373,7 +390,6 @@ function getSys($c, $matchers = false) {
 			}
 		}
 		if ($cnt) return $rv;
-		dbg($out);
 		return null;
 	}
 	return $out;
