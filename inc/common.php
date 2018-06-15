@@ -48,6 +48,16 @@ function deviceCommand() {
 		case "view":
 			call_user_func_array('devOpenURL', $args);
 			break;
+			
+		case "device-id":
+			$serial = array_shift($args);
+			if ($deviceID = adbCommand(
+				$serial,
+				'termux-dialog -t "Pali Device ID"'
+			)) {
+				file_put_contents('debug.txt', $serial);
+			}			
+			break;
 	}
 }
 

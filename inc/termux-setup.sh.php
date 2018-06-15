@@ -7,6 +7,8 @@ pkg update
 # Installing needed packages
 pkg install -y openssh termux-api curl
 
+termux-dialog -t "Pali Device ID" > "/storage/sdcard0/Documents/pali-device-id"
+
 # Starting sshd
 sshd
 

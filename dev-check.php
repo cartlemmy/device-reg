@@ -241,7 +241,7 @@ foreach ($devices as $devNum=>$device) {
 						time() > $device["termux-init-request"] + 120
 					) && (
 						!isset($device["termux-init-request"]) ||
-						time() > $device["termux-init-request"] + 30
+						time() > $device["termux-init-request"] + 15
 					)
 				) {
 					dbg('Initializing termux for '.$device["serial"]);
@@ -379,6 +379,9 @@ foreach ($devices as $device) {
 	$updated = array();
 	$updatedDesc = array();
 	
+	if (!isset($device["paliDeviceID"])) {
+		deviceCommand('request', 'device-id');
+	}
 	foreach ($device as $n=>$v) {
 		if (isset($state[$n]) && is_array($state[$n])) {
 			foreach ($state[$n] as $sn=>$sv) {
